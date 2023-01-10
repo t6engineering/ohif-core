@@ -5,7 +5,6 @@ import log from '../log.js';
  *
  * @typedef {Object} CommandDefinition
  * @property {Function} commandFn - Command to call
- * @property {Array} storeContexts - Array of string of modules required from store
  * @property {Object} options - Object of params to pass action
  */
 
@@ -19,17 +18,8 @@ import log from '../log.js';
  * to extend this class, please check it's source before adding new methods.
  */
 export class CommandsManager {
-  constructor({ getAppState, getActiveContexts } = {}) {
+  constructor({} = {}) {
     this.contexts = {};
-
-    if (!getAppState || !getActiveContexts) {
-      log.warn(
-        'CommandsManager was instantiated without getAppState() or getActiveContexts()'
-      );
-    }
-
-    this._getAppState = getAppState;
-    this._getActiveContexts = getActiveContexts;
   }
 
   /**
@@ -115,7 +105,7 @@ export class CommandsManager {
    * @param {String} commandName - Command to find
    * @param {String} [contextName] - Specific command to look in. Defaults to current activeContexts
    */
-  getCommand(commandName, contextName) {
+  getCommand = (commandName, contextName) => {
     let contexts = [];
 
     if (contextName) {
@@ -124,12 +114,8 @@ export class CommandsManager {
         contexts.push(context);
       }
     } else {
-      const activeContexts = this._getActiveContexts();
-      activeContexts.forEach(activeContext => {
-        const context = this.getContext(activeContext);
-        if (context) {
-          contexts.push(context);
-        }
+      Object.keys(this.contexts).forEach(contextName => {
+        contexts.push(this.getContext(contextName));
       });
     }
 
@@ -145,7 +131,7 @@ export class CommandsManager {
     });
 
     return foundCommand;
-  }
+  };
 
   /**
    *
@@ -161,19 +147,10 @@ export class CommandsManager {
       return;
     }
 
-    const { commandFn, storeContexts = [] } = definition;
-    const definitionOptions = definition.options;
-
-    let commandParams = {};
-    const appState = this._getAppState();
-    storeContexts.forEach(context => {
-      commandParams[context] = appState[context];
-    });
-
-    commandParams = Object.assign(
+    const { commandFn } = definition;
+    const commandParams = Object.assign(
       {},
-      commandParams, // Required store contexts
-      definitionOptions, // "Command configuration"
+      definition.options, // "Command configuration"
       options // "Time of call" info
     );
 

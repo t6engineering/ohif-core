@@ -1,0 +1,10 @@
+## Directories
+node_modules/
+coverage/
+documentation/
+
+## Files
+npm-debug.log
+.idea
+.DS_Store
+yarn.lock

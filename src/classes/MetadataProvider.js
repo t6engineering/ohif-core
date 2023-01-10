@@ -1,9 +1,11 @@
-import dcmjs from 'dcmjs';
 import queryString from 'query-string';
 import dicomParser from 'dicom-parser';
+import { imageIdToURI } from '../utils';
 import getPixelSpacingInformation from '../utils/metadataProvider/getPixelSpacingInformation';
+import DicomMetadataStore from '../services/DicomMetadataStore';
 import fetchPaletteColorLookupTableData from '../utils/metadataProvider/fetchPaletteColorLookupTableData';
-import fetchOverlayData from '../utils/metadataProvider/fetchOverlayData';
+import toNumber from '../utils/toNumber';
+import combineFrameInstance from '../utils/combineFrameInstance';
 
 class MetadataProvider {
   constructor() {
@@ -14,7 +16,17 @@ class MetadataProvider {
       writable: false,
       value: new Map(),
     });
-    Object.defineProperty(this, 'imageIdToUIDs', {
+    Object.defineProperty(this, 'imageURIToUIDs', {
+      configurable: false,
+      enumerable: false,
+      writable: false,
+      value: new Map(),
+    });
+    // Can be used to store custom metadata for a specific type.
+    // For instance, the scaling metadata for PET can be stored here
+    // as type "scalingModule"
+    //
+    Object.defineProperty(this, 'customMetadata', {
       configurable: false,
       enumerable: false,
       writable: false,
@@ -22,110 +34,44 @@ class MetadataProvider {
     });
   }
 
-  async addInstance(dicomJSONDatasetOrP10ArrayBuffer, options = {}) {
-    let dicomJSONDataset;
+  addImageIdToUIDs(imageId, uids) {
+    // This method is a fallback for when you don't have WADO-URI or WADO-RS.
+    // You can add instances fetched by any method by calling addInstance, and hook an imageId to point at it here.
+    // An example would be dicom hosted at some random site.
+    const imageURI = imageIdToURI(imageId);
+    this.imageURIToUIDs.set(imageURI, uids);
+  }
 
-    // If Arraybuffer, parse to DICOMJSON before naturalizing.
-    if (dicomJSONDatasetOrP10ArrayBuffer instanceof ArrayBuffer) {
-      const dicomData = DicomMessage.readFile(dicomJSONDatasetOrP10ArrayBuffer);
-
-      dicomJSONDataset = dicomData.dict;
-    } else {
-      dicomJSONDataset = dicomJSONDatasetOrP10ArrayBuffer;
+  addCustomMetadata(imageId, type, metadata) {
+    const imageURI = imageIdToURI(imageId);
+    if (!this.customMetadata.has(type)) {
+      this.customMetadata.set(type, {});
     }
 
-    // Check if dataset is already naturalized.
+    this.customMetadata.get(type)[imageURI] = metadata;
+  }
 
-    let naturalizedDataset;
+  _getInstance(imageId) {
+    const uids = this.getUIDsFromImageID(imageId);
 
-    if (dicomJSONDataset['SeriesInstanceUID'] === undefined) {
-      naturalizedDataset = dcmjs.data.DicomMetaDictionary.naturalizeDataset(
-        dicomJSONDataset
-      );
-    } else {
-      naturalizedDataset = dicomJSONDataset;
+    if (!uids) {
+      return;
     }
 
     const {
       StudyInstanceUID,
       SeriesInstanceUID,
       SOPInstanceUID,
-    } = naturalizedDataset;
+      frameNumber,
+    } = uids;
 
-    const study = this._getAndCacheStudy(StudyInstanceUID);
-    const series = this._getAndCacheSeriesFromStudy(study, SeriesInstanceUID);
-    const instance = this._getAndCacheInstanceFromStudy(series, SOPInstanceUID);
-
-    Object.assign(instance, naturalizedDataset);
-
-    await this._checkBulkDataAndInlineBinaries(instance, options.server);
-
-    return instance;
-  }
-
-  addImageIdToUIDs(imageId, uids) {
-    // This method is a fallback for when you don't have WADO-URI or WADO-RS.
-    // You can add instances fetched by any method by calling addInstance, and hook an imageId to point at it here.
-    // An example would be dicom hosted at some random site.
-
-    this.imageIdToUIDs.set(imageId, uids);
-  }
-
-  _getAndCacheStudy(StudyInstanceUID) {
-    const studies = this.studies;
-
-    let study = studies.get(StudyInstanceUID);
-
-    if (!study) {
-      study = { series: new Map() };
-      studies.set(StudyInstanceUID, study);
-    }
-
-    return study;
-  }
-  _getAndCacheSeriesFromStudy(study, SeriesInstanceUID) {
-    let series = study.series.get(SeriesInstanceUID);
-
-    if (!series) {
-      series = { instances: new Map() };
-      study.series.set(SeriesInstanceUID, series);
-    }
-
-    return series;
-  }
-
-  _getAndCacheInstanceFromStudy(series, SOPInstanceUID) {
-    let instance = series.instances.get(SOPInstanceUID);
-
-    if (!instance) {
-      instance = {};
-      series.instances.set(SOPInstanceUID, instance);
-    }
-
-    return instance;
-  }
-
-  async _checkBulkDataAndInlineBinaries(instance, server) {
-    await fetchOverlayData(instance, server);
-
-    if (instance.PhotometricInterpretation === 'PALETTE COLOR') {
-      await fetchPaletteColorLookupTableData(instance, server);
-    }
-  }
-
-  _getInstance(imageId) {
-    const uids = this._getUIDsFromImageID(imageId);
-
-    if (!uids) {
-      return;
-    }
-
-    const { StudyInstanceUID, SeriesInstanceUID, SOPInstanceUID } = uids;
-
-    return this._getInstanceData(
+    const instance = DicomMetadataStore.getInstance(
       StudyInstanceUID,
       SeriesInstanceUID,
       SOPInstanceUID
+    );
+    return (
+      (frameNumber && combineFrameInstance(frameNumber, instance)) || instance
     );
   }
 
@@ -134,6 +80,15 @@ class MetadataProvider {
 
     if (query === INSTANCE) {
       return instance;
+    }
+
+    // check inside custom metadata
+    if (this.customMetadata.has(query)) {
+      const customMetadata = this.customMetadata.get(query);
+      const imageURI = imageIdToURI(imageId);
+      if (customMetadata[imageURI]) {
+        return customMetadata[imageURI];
+      }
     }
 
     return this.getTagFromInstance(query, instance, options);
@@ -189,7 +144,7 @@ class MetadataProvider {
         metadata = {
           modality: instance.Modality,
           seriesInstanceUID: instance.SeriesInstanceUID,
-          seriesNumber: instance.SeriesNumber,
+          seriesNumber: toNumber(instance.SeriesNumber),
           studyInstanceUID: instance.StudyInstanceUID,
           seriesDate,
           seriesTime,
@@ -197,9 +152,14 @@ class MetadataProvider {
         break;
       case WADO_IMAGE_LOADER_TAGS.PATIENT_STUDY_MODULE:
         metadata = {
-          patientAge: instance.PatientAge,
-          patientSize: instance.PatientSize,
-          patientWeight: instance.PatientWeight,
+          patientAge: toNumber(instance.PatientAge),
+          patientSize: toNumber(instance.PatientSize),
+          patientWeight: toNumber(instance.PatientWeight),
+        };
+        break;
+      case WADO_IMAGE_LOADER_TAGS.PATIENT_DEMOGRAPHIC_MODULE:
+        metadata = {
+          patientSex: instance.PatientSex,
         };
         break;
       case WADO_IMAGE_LOADER_TAGS.IMAGE_PLANE_MODULE:
@@ -228,51 +188,67 @@ class MetadataProvider {
 
         metadata = {
           frameOfReferenceUID: instance.FrameOfReferenceUID,
-          rows: instance.Rows,
-          columns: instance.Columns,
-          imageOrientationPatient: ImageOrientationPatient,
-          rowCosines,
-          columnCosines,
-          imagePositionPatient: instance.ImagePositionPatient,
-          sliceThickness: instance.SliceThickness,
-          sliceLocation: instance.SliceLocation,
-          pixelSpacing: PixelSpacing,
-          rowPixelSpacing,
-          columnPixelSpacing,
+          rows: toNumber(instance.Rows),
+          columns: toNumber(instance.Columns),
+          imageOrientationPatient: toNumber(ImageOrientationPatient),
+          rowCosines: toNumber(rowCosines || [0, 1, 0]),
+          columnCosines: toNumber(columnCosines || [0, 0, -1]),
+          imagePositionPatient: toNumber(
+            instance.ImagePositionPatient || [0, 0, 0]
+          ),
+          sliceThickness: toNumber(instance.SliceThickness),
+          sliceLocation: toNumber(instance.SliceLocation),
+          pixelSpacing: toNumber(PixelSpacing || 1),
+          rowPixelSpacing: toNumber(rowPixelSpacing || 1),
+          columnPixelSpacing: toNumber(columnPixelSpacing || 1),
         };
         break;
       case WADO_IMAGE_LOADER_TAGS.IMAGE_PIXEL_MODULE:
         metadata = {
-          samplesPerPixel: instance.SamplesPerPixel,
+          samplesPerPixel: toNumber(instance.SamplesPerPixel),
           photometricInterpretation: instance.PhotometricInterpretation,
-          rows: instance.Rows,
-          columns: instance.Columns,
-          bitsAllocated: instance.BitsAllocated,
-          bitsStored: instance.BitsStored,
-          highBit: instance.HighBit,
-          pixelRepresentation: instance.PixelRepresentation,
-          planarConfiguration: instance.PlanarConfiguration,
-          pixelAspectRatio: instance.PixelAspectRatio,
-          smallestPixelValue: instance.SmallestPixelValue,
-          largestPixelValue: instance.LargestPixelValue,
-          redPaletteColorLookupTableDescriptor:
-            instance.RedPaletteColorLookupTableDescriptor,
-          greenPaletteColorLookupTableDescriptor:
-            instance.GreenPaletteColorLookupTableDescriptor,
-          bluePaletteColorLookupTableDescriptor:
-            instance.BluePaletteColorLookupTableDescriptor,
-          redPaletteColorLookupTableData:
-            instance.RedPaletteColorLookupTableData,
-          greenPaletteColorLookupTableData:
-            instance.GreenPaletteColorLookupTableData,
-          bluePaletteColorLookupTableData:
-            instance.BluePaletteColorLookupTableData,
+          rows: toNumber(instance.Rows),
+          columns: toNumber(instance.Columns),
+          bitsAllocated: toNumber(instance.BitsAllocated),
+          bitsStored: toNumber(instance.BitsStored),
+          highBit: toNumber(instance.HighBit),
+          pixelRepresentation: toNumber(instance.PixelRepresentation),
+          planarConfiguration: toNumber(instance.PlanarConfiguration),
+          pixelAspectRatio: toNumber(instance.PixelAspectRatio),
+          smallestPixelValue: toNumber(instance.SmallestPixelValue),
+          largestPixelValue: toNumber(instance.LargestPixelValue),
+          redPaletteColorLookupTableDescriptor: toNumber(
+            instance.RedPaletteColorLookupTableDescriptor
+          ),
+          greenPaletteColorLookupTableDescriptor: toNumber(
+            instance.GreenPaletteColorLookupTableDescriptor
+          ),
+          bluePaletteColorLookupTableDescriptor: toNumber(
+            instance.BluePaletteColorLookupTableDescriptor
+          ),
+          redPaletteColorLookupTableData: fetchPaletteColorLookupTableData(
+            instance,
+            'RedPaletteColorLookupTableData',
+            'RedPaletteColorLookupTableDescriptor'
+          ),
+          greenPaletteColorLookupTableData: fetchPaletteColorLookupTableData(
+            instance,
+            'GreenPaletteColorLookupTableData',
+            'GreenPaletteColorLookupTableDescriptor'
+          ),
+          bluePaletteColorLookupTableData: fetchPaletteColorLookupTableData(
+            instance,
+            'BluePaletteColorLookupTableData',
+            'BluePaletteColorLookupTableDescriptor'
+          ),
         };
 
         break;
       case WADO_IMAGE_LOADER_TAGS.VOI_LUT_MODULE:
         const { WindowCenter, WindowWidth } = instance;
-
+        if (WindowCenter === undefined || WindowWidth === undefined) {
+          return;
+        }
         const windowCenter = Array.isArray(WindowCenter)
           ? WindowCenter
           : [WindowCenter];
@@ -281,15 +257,20 @@ class MetadataProvider {
           : [WindowWidth];
 
         metadata = {
-          windowCenter,
-          windowWidth,
+          windowCenter: toNumber(windowCenter),
+          windowWidth: toNumber(windowWidth),
         };
 
         break;
       case WADO_IMAGE_LOADER_TAGS.MODALITY_LUT_MODULE:
+        const { RescaleIntercept, RescaleSlope } = instance;
+        if (RescaleIntercept === undefined || RescaleSlope === undefined) {
+          return;
+        }
+
         metadata = {
-          rescaleIntercept: instance.RescaleIntercept,
-          rescaleSlope: instance.RescaleSlope,
+          rescaleIntercept: toNumber(instance.RescaleIntercept),
+          rescaleSlope: toNumber(instance.RescaleSlope),
           rescaleType: instance.RescaleType,
         };
         break;
@@ -401,7 +382,7 @@ class MetadataProvider {
       case WADO_IMAGE_LOADER_TAGS.GENERAL_IMAGE_MODULE:
         metadata = {
           sopInstanceUid: instance.SOPInstanceUID,
-          instanceNumber: instance.InstanceNumber,
+          instanceNumber: toNumber(instance.InstanceNumber),
           lossyImageCompression: instance.LossyImageCompression,
           lossyImageCompressionRatio: instance.LossyImageCompressionRatio,
           lossyImageCompressionMethod: instance.LossyImageCompressionMethod,
@@ -423,52 +404,63 @@ class MetadataProvider {
         };
 
         break;
+      default:
+        return;
     }
 
     return metadata;
   }
 
-  _getInstanceData(StudyInstanceUID, SeriesInstanceUID, SOPInstanceUID) {
-    const study = this.studies.get(StudyInstanceUID);
-
-    if (!study) {
-      return;
-    }
-
-    const series = study.series.get(SeriesInstanceUID);
-
-    if (!series) {
-      return;
-    }
-
-    const instance = series.instances.get(SOPInstanceUID);
-
-    return instance;
-  }
-
-  _getUIDsFromImageID(imageId) {
-    if (imageId.includes('wadors:')) {
-      const strippedImageId = imageId.split('studies/')[1];
+  getUIDsFromImageID(imageId) {
+    // TODO: adding csiv here is not really correct. Probably need to use
+    // metadataProvider.addImageIdToUIDs(imageId, {
+    //   StudyInstanceUID,
+    //   SeriesInstanceUID,
+    //   SOPInstanceUID,
+    // })
+    // somewhere else
+    if (
+      imageId.startsWith('wadors:') ||
+      imageId.startsWith('streaming-wadors:')
+    ) {
+      const strippedImageId = imageId.split('/studies/')[1];
       const splitImageId = strippedImageId.split('/');
 
       return {
         StudyInstanceUID: splitImageId[0], // Note: splitImageId[1] === 'series'
         SeriesInstanceUID: splitImageId[2], // Note: splitImageId[3] === 'instances'
         SOPInstanceUID: splitImageId[4],
+        frameNumber: splitImageId[6],
       };
-    }
-    if (imageId.includes('wado?requestType=WADO')) {
+    } else if (imageId.includes('?requestType=WADO')) {
       const qs = queryString.parse(imageId);
 
       return {
         StudyInstanceUID: qs.studyUID,
         SeriesInstanceUID: qs.seriesUID,
         SOPInstanceUID: qs.objectUID,
+        frameNumber: qs.frameNumber,
       };
-    } else {
-      // Maybe its a non-standard imageId
-      return this.imageIdToUIDs.get(imageId);
     }
+
+    // Maybe its a non-standard imageId
+    // check if the imageId starts with http:// or https:// using regex
+    // Todo: handle non http imageIds
+    let imageURI;
+    const urlRegex = /^(http|https):\/\//;
+    if (urlRegex.test(imageId)) {
+      imageURI = imageId;
+    } else {
+      imageURI = imageIdToURI(imageId);
+    }
+
+    const uids = this.imageURIToUIDs.get(imageURI);
+    const frameNumber = imageId.split(/\/frames\//)[1];
+
+    if (uids && frameNumber !== undefined) {
+      return { ...uids, frameNumber };
+    }
+    return uids;
   }
 }
 
@@ -487,6 +479,7 @@ const WADO_IMAGE_LOADER_TAGS = {
   SOP_COMMON_MODULE: 'sopCommonModule',
   PET_ISOTOPE_MODULE: 'petIsotopeModule',
   OVERLAY_PLANE_MODULE: 'overlayPlaneModule',
+  PATIENT_DEMOGRAPHIC_MODULE: 'patientDemographicModule',
 
   // react-cornerstone-viewport specifc
   PATIENT_MODULE: 'patientModule',

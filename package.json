@@ -1,12 +1,12 @@
 {
   "name": "@ohif/core",
-  "version": "2.9.6",
+  "version": "3.0.0",
   "description": "Generic business logic for web-based medical imaging applications",
   "author": "OHIF Core Team",
   "license": "MIT",
   "repository": "OHIF/Viewers",
   "main": "dist/index.umd.js",
-  "module": "src/index.js",
+  "module": "src/index.ts",
   "sideEffects": "false",
   "publishConfig": {
     "access": "public"
@@ -16,36 +16,39 @@
     "README.md"
   ],
   "engines": {
-    "node": ">=10",
+    "node": ">=14",
     "npm": ">=6",
     "yarn": ">=1.16.0"
   },
   "scripts": {
     "dev": "jest --watchAll",
     "dev:core": "yarn run dev",
-    "build": "cross-env NODE_ENV=production QUICK_BUILD=true webpack --config .webpack/webpack.prod.js",
+    "build": "cross-env NODE_ENV=production webpack --config .webpack/webpack.prod.js",
     "build:package": "yarn run build",
-    "prepublishOnly": "yarn run build",
     "start": "yarn run dev",
     "test:unit": "jest --watchAll",
     "test:unit:ci": "jest --ci --runInBand --collectCoverage"
   },
   "peerDependencies": {
-    "cornerstone-core": "^2.2.8",
-    "cornerstone-tools": "4.15.1",
-    "cornerstone-wado-image-loader": "^3.1.0",
-    "dicom-parser": "^1.8.3"
+    "cornerstone-math": "0.1.9",
+    "dicom-parser": "^1.8.9",
+    "@ohif/ui": "^2.0.0"
   },
   "dependencies": {
-    "@babel/runtime": "^7.5.5",
-    "ajv": "^6.10.0",
-    "dcmjs": "^0.12.2",
+    "@babel/runtime": "7.16.3",
+    "dcmjs": "^0.28.3",
+    "cornerstone-wado-image-loader": "git+https://github.com/t6engineering/cornerstoneWADOImageLoader.git#402cdfa34f6b55284eea20b12dac4600ec6382e8",
     "dicomweb-client": "git+https://github.com/t6engineering/dicomweb-client.git#20b921eb6bd6451d9cc711f2fb0dc18e591700d4",
-    "immer": "6.0.2",
     "isomorphic-base64": "^1.0.2",
-    "lodash.clonedeep": "^4.5.0",
     "lodash.merge": "^4.6.1",
-    "mousetrap": "^1.6.3",
+    "lodash.clonedeep": "^4.5.0",
+    "moment": "^2.24.0",
+    "query-string": "^6.14.0",
+    "object-hash": "2.1.1",
+    "gl-matrix": "^3.4.3",
     "validate.js": "^0.12.0"
+  },
+  "devDependencies": {
+    "webpack-merge": "5.7.3"
   }
 }

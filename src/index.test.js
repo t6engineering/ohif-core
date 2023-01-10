@@ -1,4 +1,4 @@
-import * as OHIF from './index.js';
+import * as OHIF from './index';
 
 describe('Top level exports', () => {
   test('have not changed', () => {
@@ -10,31 +10,35 @@ describe('Top level exports', () => {
       'HotkeysManager',
       'ServicesManager',
       //
-      'UINotificationService',
-      'UIModalService',
-      'UIDialogService',
-      'MeasurementService',
-      //
+      'defaults',
       'utils',
       'hotkeys',
-      'studies',
-      'redux',
       'classes',
-      'metadata',
-      'header',
-      'cornerstone',
       'default', //
       'errorHandler',
       'string',
-      'ui',
       'user',
       'object',
       'log',
       'DICOMWeb',
-      'DICOMSR',
-      'OHIF', //
-      'measurements',
-      'hangingProtocols',
+      'OHIF',
+      //
+      'CineService',
+      'CustomizationServiceRegistration',
+      'UIDialogService',
+      'UIModalService',
+      'UINotificationService',
+      'UIViewportDialogService',
+      'DisplaySetService',
+      'MeasurementService',
+      'ToolBarService',
+      'Types',
+      'ViewportGridService',
+      'HangingProtocolService',
+      'UserAuthenticationService',
+      'IWebApiDataSource',
+      'DicomMetadataStore',
+      'pubSubServiceInterface',
     ].sort();
 
     const exports = Object.keys(OHIF).sort();

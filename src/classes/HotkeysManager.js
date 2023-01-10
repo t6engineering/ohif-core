@@ -1,11 +1,13 @@
-import hotkeys from './../utils/hotkeys';
+import objectHash from 'object-hash';
 import log from './../log.js';
+import { hotkeys } from '../utils';
 
 /**
  *
  *
  * @typedef {Object} HotkeyDefinition
  * @property {String} commandName - Command to call
+ * @property {Object} commandOptions - Command options
  * @property {String} label - Display name for hotkey
  * @property {String[]} keys - Keys to bind; Follows Mousetrap.js binding syntax
  */
@@ -17,7 +19,7 @@ export class HotkeysManager {
     this.isEnabled = true;
 
     if (!commandsManager) {
-      log.warn(
+      throw new Error(
         'HotkeysManager instantiated without a commandsManager. Hotkeys will be unable to find and run commands.'
       );
     }
@@ -59,14 +61,14 @@ export class HotkeysManager {
    */
   setHotkeys(hotkeyDefinitions = []) {
     try {
-      const definitions = this._getValidDefinitions(hotkeyDefinitions);
-
+      const definitions = this.getValidDefinitions(hotkeyDefinitions);
       definitions.forEach(definition => this.registerHotkeys(definition));
+      localStorage.setItem('hotkey-definitions', JSON.stringify(definitions));
     } catch (error) {
       const { UINotificationService } = this._servicesManager.services;
       UINotificationService.show({
         title: 'Hotkeys Manager',
-        message: 'Erro while setting hotkeys',
+        message: 'Error while setting hotkeys',
         type: 'error',
       });
     }
@@ -79,8 +81,7 @@ export class HotkeysManager {
    * @param {HotkeyDefinition[] | Object} [hotkeyDefinitions=[]] Contains hotkeys definitions
    */
   setDefaultHotKeys(hotkeyDefinitions = []) {
-    const definitions = this._getValidDefinitions(hotkeyDefinitions);
-
+    const definitions = this.getValidDefinitions(hotkeyDefinitions);
     this.hotkeyDefaults = definitions;
   }
 
@@ -90,12 +91,30 @@ export class HotkeysManager {
    *
    * @param {HotkeyDefinition[] | Object} [hotkeyDefinitions=[]] Contains hotkeys definitions
    */
-  _getValidDefinitions(hotkeyDefinitions) {
+  getValidDefinitions(hotkeyDefinitions) {
     const definitions = Array.isArray(hotkeyDefinitions)
       ? [...hotkeyDefinitions]
       : this._parseToArrayLike(hotkeyDefinitions);
 
     return definitions;
+  }
+
+  /**
+   * Take hotkey definitions that can be an array and make sure that it
+   * returns an object of hotkeys definitions
+   *
+   * @param {HotkeyDefinition[]} [hotkeyDefinitions=[]] Contains hotkeys definitions
+   * @returns {Object}
+   */
+  getValidHotkeyDefinitions(hotkeyDefinitions) {
+    const definitions = this.getValidDefinitions(hotkeyDefinitions);
+    const objectDefinitions = {};
+    definitions.forEach(definition => {
+      const { commandName, commandOptions } = definition;
+      const commandHash = objectHash({ commandName, commandOptions });
+      objectDefinitions[commandHash] = definition;
+    });
+    return objectDefinitions;
   }
 
   /**
@@ -141,28 +160,44 @@ export class HotkeysManager {
    * When a hotkey combination is triggered, the command name and active contexts
    * are used to locate the correct command to call.
    *
-   * @param {HotkeyDefinition} commandName
+   * @param {HotkeyDefinition} command
    * @param {String} extension
    * @returns {undefined}
    */
-  registerHotkeys({ commandName, keys, label } = {}, extension) {
+  registerHotkeys(
+    { commandName, commandOptions = {}, keys, label, isEditable } = {},
+    extension
+  ) {
     if (!commandName) {
-      log.warn(`No command was defined for hotkey "${keys}"`);
-      return;
+      throw new Error(`No command was defined for hotkey "${keys}"`);
     }
 
-    const previouslyRegisteredDefinition = this.hotkeyDefinitions[commandName];
+    const commandHash = objectHash({ commandName, commandOptions });
+    const options = Object.keys(commandOptions).length
+      ? JSON.stringify(commandOptions)
+      : 'no';
+    const previouslyRegisteredDefinition = this.hotkeyDefinitions[commandHash];
 
     if (previouslyRegisteredDefinition) {
       const previouslyRegisteredKeys = previouslyRegisteredDefinition.keys;
       this._unbindHotkeys(commandName, previouslyRegisteredKeys);
-      log.info(`Unbinding ${commandName} from ${previouslyRegisteredKeys}`);
+      log.info(
+        `[hotkeys] Unbinding ${commandName} with ${options} options from ${previouslyRegisteredKeys}`
+      );
     }
 
     // Set definition & bind
-    this.hotkeyDefinitions[commandName] = { keys, label };
-    this._bindHotkeys(commandName, keys);
-    log.info(`Binding ${commandName} to ${keys}`);
+    this.hotkeyDefinitions[commandHash] = {
+      commandName,
+      commandOptions,
+      keys,
+      label,
+      isEditable,
+    };
+    this._bindHotkeys(commandName, commandOptions, keys);
+    log.info(
+      `[hotkeys] Binding ${commandName} with ${options} options to ${keys}`
+    );
   }
 
   /**
@@ -191,7 +226,7 @@ export class HotkeysManager {
    * @param {string[]} keys - One or more key combinations that should trigger command
    * @returns {undefined}
    */
-  _bindHotkeys(commandName, keys) {
+  _bindHotkeys(commandName, commandOptions = {}, keys) {
     const isKeyDefined = keys === '' || keys === undefined;
     if (isKeyDefined) {
       return;
@@ -203,7 +238,7 @@ export class HotkeysManager {
     hotkeys.bind(combinedKeys, evt => {
       evt.preventDefault();
       evt.stopPropagation();
-      this._commandsManager.runCommand(commandName, { evt });
+      this._commandsManager.runCommand(commandName, { evt, ...commandOptions });
     });
   }
 

@@ -28,7 +28,7 @@ export default function getAuthorizationHeader({ requestOptions } = {}, user) {
   }
   // Auth for the user's default
   else if (accessToken) {
-    headers.Authorization = `Bearer ${accessToken}`;
+    headers.Authorization = accessToken;
   }
 
   return headers;

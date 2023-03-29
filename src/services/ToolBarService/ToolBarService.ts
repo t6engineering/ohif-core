@@ -1,46 +1,48 @@
 import merge from 'lodash.merge';
-import pubSubServiceInterface from '../_shared/pubSubServiceInterface';
+import { CommandsManager } from '../../classes';
+import { ExtensionManager } from '../../extensions';
+import { PubSubService } from '../_shared/pubSubServiceInterface';
 
 const EVENTS = {
   TOOL_BAR_MODIFIED: 'event::toolBarService:toolBarModified',
   TOOL_BAR_STATE_MODIFIED: 'event::toolBarService:toolBarStateModified',
 };
 
-export default class ToolBarService {
-  constructor(commandsManager) {
+export default class ToolbarService extends PubSubService {
+  public static REGISTRATION = {
+    name: 'toolbarService',
+    // Note the old name is ToolBarService, with an upper B
+    altName: 'ToolBarService',
+    create: ({ commandsManager }) => {
+      return new ToolbarService(commandsManager);
+    },
+  };
+
+  buttons: Record<string, unknown> = {};
+  state: {
+    primaryToolId: string;
+    toggles: Record<string, boolean>;
+    groups: Record<string, unknown>;
+  } = { primaryToolId: 'WindowLevel', toggles: {}, groups: {} };
+  buttonSections: Record<string, unknown> = {
+    /**
+     * primary: ['Zoom', 'Wwwc'],
+     * secondary: ['Length', 'RectangleRoi']
+     */
+  };
+  _commandsManager: CommandsManager;
+  extensionManager: ExtensionManager;
+
+  constructor(commandsManager: CommandsManager) {
+    super(EVENTS);
     this._commandsManager = commandsManager;
-    //
-    this.EVENTS = EVENTS;
-    this.listeners = {};
-    this.buttons = {};
-    this.unsubscriptions = []; // if tools need to unsubscribe from events
-    this.buttonSections = {
-      /**
-       * primary: ['Zoom', 'Wwwc'],
-       * secondary: ['Length', 'RectangleRoi']
-       */
-    };
-
-    // TODO: Do we need to track per context? Or do we allow for a mixed
-    // definition that adapts based on context?
-    this.state = {
-      primaryToolId: 'WindowLevel',
-      toggles: {
-        /* id: true/false */
-      },
-      groups: {
-        /* track most recent click per group...? */
-      },
-    };
-
-    Object.assign(this, pubSubServiceInterface);
   }
 
-  init(extensionManager) {
+  public init(extensionManager: ExtensionManager): void {
     this.extensionManager = extensionManager;
   }
 
-  reset() {
+  public reset(): void {
     this.unsubscriptions.forEach(unsub => unsub());
     this.state = {
       primaryToolId: 'WindowLevel',
@@ -63,7 +65,7 @@ export default class ToolBarService {
    *    used for calling the specified interaction.  That is, the command is
    *    called with {...commandOptions,...options}
    */
-  recordInteraction(interaction, options) {
+  recordInteraction(interaction, options?: Record<string, unknown>) {
     if (!interaction) return;
     const commandsManager = this._commandsManager;
     const { groupId, itemId, interactionType, commands } = interaction;
@@ -173,6 +175,15 @@ export default class ToolBarService {
 
   getActiveTools() {
     return [this.state.primaryToolId, ...Object.keys(this.state.toggles)];
+  }
+
+  /** Sets the toggle state of a button to the isActive state */
+  public setActive(id: string, isActive: boolean): void {
+    if (isActive) {
+      this.state.toggles[id] = true;
+    } else {
+      delete this.state.toggles[id];
+    }
   }
 
   setButton(id, button) {

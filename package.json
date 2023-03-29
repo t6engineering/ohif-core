@@ -23,29 +23,29 @@
   "scripts": {
     "dev": "jest --watchAll",
     "dev:core": "yarn run dev",
-    "build": "cross-env NODE_ENV=production webpack --config .webpack/webpack.prod.js",
+    "build": "cross-env NODE_ENV=production QUICK_BUILD=true webpack --config .webpack/webpack.prod.js",
     "build:package": "yarn run build",
     "start": "yarn run dev",
     "test:unit": "jest --watchAll",
     "test:unit:ci": "jest --ci --runInBand --collectCoverage"
   },
   "peerDependencies": {
+    "@ohif/ui": "^2.0.0",
     "cornerstone-math": "0.1.9",
-    "dicom-parser": "^1.8.9",
-    "@ohif/ui": "^2.0.0"
+    "cornerstone-wado-image-loader": "^4.10.2",
+    "dicom-parser": "^1.8.9"
   },
   "dependencies": {
-    "@babel/runtime": "7.16.3",
-    "dcmjs": "^0.28.3",
-    "cornerstone-wado-image-loader": "git+https://github.com/t6engineering/cornerstoneWADOImageLoader.git#402cdfa34f6b55284eea20b12dac4600ec6382e8",
+    "@babel/runtime": "^7.20.13",
+    "dcmjs": "^0.29.4",
     "dicomweb-client": "git+https://github.com/t6engineering/dicomweb-client.git#20b921eb6bd6451d9cc711f2fb0dc18e591700d4",
-    "isomorphic-base64": "^1.0.2",
-    "lodash.merge": "^4.6.1",
-    "lodash.clonedeep": "^4.5.0",
-    "moment": "^2.24.0",
-    "query-string": "^6.14.0",
-    "object-hash": "2.1.1",
     "gl-matrix": "^3.4.3",
+    "isomorphic-base64": "^1.0.2",
+    "lodash.clonedeep": "^4.5.0",
+    "lodash.merge": "^4.6.1",
+    "moment": "^2.24.0",
+    "object-hash": "2.1.1",
+    "query-string": "^6.14.0",
     "validate.js": "^0.12.0"
   },
   "devDependencies": {

@@ -1,32 +1,37 @@
-import pubSubServiceInterface from './../_shared/pubSubServiceInterface';
+import { PubSubService } from '../_shared/pubSubServiceInterface';
 
 const EVENTS = {
   ACTIVE_VIEWPORT_INDEX_CHANGED: 'event::activeviewportindexchanged',
 };
 
-class ViewportGridService {
+class ViewportGridService extends PubSubService {
+  public static REGISTRATION = {
+    name: 'viewportGridService',
+    altName: 'ViewportGridService',
+    create: ({ configuration = {} }) => {
+      return new ViewportGridService();
+    },
+  };
+  public static EVENTS = EVENTS;
+
   serviceImplementation = {};
-  EVENTS: { [key: string]: string };
-  listeners = {};
 
   constructor() {
-    Object.assign(this, pubSubServiceInterface);
+    super(EVENTS);
     this.serviceImplementation = {};
-    this.EVENTS = EVENTS;
   }
 
-  setServiceImplementation({
+  public setServiceImplementation({
     getState: getStateImplementation,
     setActiveViewportIndex: setActiveViewportIndexImplementation,
     setDisplaySetsForViewport: setDisplaySetsForViewportImplementation,
     setDisplaySetsForViewports: setDisplaySetsForViewportsImplementation,
-    setCachedLayout: setCachedLayoutImplementation,
-    restoreCachedLayout: restoreCachedLayoutImplementation,
     setLayout: setLayoutImplementation,
     reset: resetImplementation,
     onModeExit: onModeExitImplementation,
     set: setImplementation,
-  }) {
+    getNumViewportPanes: getNumViewportPanesImplementation,
+  }): void {
     if (getStateImplementation) {
       this.serviceImplementation._getState = getStateImplementation;
     }
@@ -45,24 +50,24 @@ class ViewportGridService {
     if (resetImplementation) {
       this.serviceImplementation._reset = resetImplementation;
     }
-    if (setCachedLayoutImplementation) {
-      this.serviceImplementation._setCachedLayout = setCachedLayoutImplementation;
-    }
-    if (restoreCachedLayoutImplementation) {
-      this.serviceImplementation._restoreCachedLayout = restoreCachedLayoutImplementation;
-    }
     if (onModeExitImplementation) {
       this.serviceImplementation._onModeExit = onModeExitImplementation;
     }
     if (setImplementation) {
       this.serviceImplementation._set = setImplementation;
     }
+    if (getNumViewportPanesImplementation) {
+      this.serviceImplementation._getNumViewportPanes = getNumViewportPanesImplementation;
+    }
   }
 
   public setActiveViewportIndex(index) {
     this.serviceImplementation._setActiveViewportIndex(index);
+    const state = this.getState();
+    const viewportId = state.viewports[index]?.viewportOptions?.viewportId;
     this._broadcastEvent(this.EVENTS.ACTIVE_VIEWPORT_INDEX_CHANGED, {
       viewportIndex: index,
+      viewportId,
     });
   }
 
@@ -88,8 +93,20 @@ class ViewportGridService {
     this.serviceImplementation._setDisplaySetsForViewports(viewports);
   }
 
-  public setLayout({ numCols, numRows }) {
-    this.serviceImplementation._setLayout({ numCols, numRows });
+  /**
+   *
+   * @param numCols, numRows - the number of columns and rows to apply
+   * @param findOrCreateViewport is a function which takes the
+   *    index position of the viewport, the position id, and a set of
+   *    options that is initially provided as {} (eg to store intermediate state)
+   *    The function returns a viewport object to use at the given position.
+   */
+  public setLayout({ numCols, numRows, findOrCreateViewport = undefined }) {
+    this.serviceImplementation._setLayout({
+      numCols,
+      numRows,
+      findOrCreateViewport,
+    });
   }
 
   public reset() {
@@ -106,22 +123,13 @@ class ViewportGridService {
     this.serviceImplementation._onModeExit();
   }
 
-  public setCachedLayout({ cacheId, cachedLayout }) {
-    this.serviceImplementation._setCachedLayout({ cacheId, cachedLayout });
-  }
-
-  public restoreCachedLayout(cacheId) {
-    this.serviceImplementation._restoreCachedLayout(cacheId);
-  }
-
   public set(state) {
     this.serviceImplementation._set(state);
   }
+
+  public getNumViewportPanes() {
+    return this.serviceImplementation._getNumViewportPanes();
+  }
 }
 
-export default {
-  name: 'ViewportGridService',
-  create: ({ configuration = {} }) => {
-    return new ViewportGridService();
-  },
-};
+export default ViewportGridService;
